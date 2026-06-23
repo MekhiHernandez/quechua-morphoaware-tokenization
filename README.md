@@ -54,6 +54,9 @@ python evaluate_base_model.py       # evaluate on test set
 Training uses gradient accumulation and gradient checkpointing and fits in 
 roughly 8 GB of VRAM at the default settings.
 
+To reproduce the training environment on an AWS EC2 GPU instance (Deep Learning AMI), 
+see [docs/aws-training-setup.md](docs/aws-training-setup.md).
+
 ## Morphological analyzer
 
 Morpheme segmentation is performed by a modified version of the `analyzeCuzco` FST from Annette Rios's 
