@@ -56,13 +56,17 @@ class TranslationEvaluator():
             tokenizer: NllbTokenizer,
             dataset_dict: DatasetDict,
             old_vocab_size: int,
-            device: str | None = None
+            device: str | None = None,
+            use_fst: bool = True
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.dataset_dict = dataset_dict
         self.old_vocab_size = old_vocab_size
         self.device = get_device() if device is None else device
+        # When False, Quechua is tokenized with NLLB's default subword tokenizer
+        # instead of FST morpheme segmentation (used for the reference/control model).
+        self.use_fst = use_fst
 
         self.model.gradient_checkpointing_enable()
         self.model.config.use_cache = False
@@ -114,11 +118,12 @@ class TranslationEvaluator():
             self,
             batch_size: int,
             split: str = 'test',
-            use_decoded_fst_output: bool = False
+            use_decoded_fst_output: bool = False,
+            log_freq: int = _TRANSLATION_BATCHES_PER_PRINT
     ) -> TranslationMetrics:
         '''Evaluates the model on the given dataset split with BLEU, chrF, and chrF++ translation metrics.'''
         loader = self._build_dataloader(split, batch_size=batch_size, shuffle=False)
-        metrics = self._compute_translation_metrics(loader, split, use_decoded_fst_output)
+        metrics = self._compute_translation_metrics(loader, split, use_decoded_fst_output, log_freq)
         self._print_translation_metrics(metrics)
         return metrics
 
@@ -136,7 +141,7 @@ class TranslationEvaluator():
         start_time = datetime.now().strftime('%Y%m%d_%H%M%S')
 
         for epoch in range(1, config['epochs'] + 1):
-            print(f'--------------- Epoch {epoch}/{config['epochs']} ---------------')
+            print(f"--------------- Epoch {epoch}/{config['epochs']} ---------------")
             print(f'Starting training epoch...')
             train_loss = trainer.train_epoch(train_loader, config['batches_per_update'])
 
@@ -146,7 +151,7 @@ class TranslationEvaluator():
             train_losses.append(train_loss)
             val_losses.append(val_loss)
 
-            print(f'Epoch {epoch} - train loss: {train_loss:.5f}, val loss: {val_loss:.5f}')
+            print(f"Epoch {epoch} - train loss: {train_loss:.5f}, val loss: {val_loss:.5f}")
 
             if epoch % config['eval_freq'] == 0:
                 print(f'Computing translation metrics on the validation dataset...')
@@ -164,6 +169,7 @@ class TranslationEvaluator():
             data_loader: DataLoader[TokenizedBatch],
             split: str,
             use_decode_fst_output: bool = False,
+            log_freq: int = _TRANSLATION_BATCHES_PER_PRINT
     ) -> TranslationMetrics:
         dataset = self.dataset_dict[split]
         predicted_translations: list[str] = []
@@ -176,7 +182,7 @@ class TranslationEvaluator():
         with torch.no_grad():
             for i, batch in enumerate(data_loader):
                 batch: TokenizedBatch
-                if (i + 1) % self._TRANSLATION_BATCHES_PER_PRINT == 0:
+                if (i + 1) % log_freq == 0:
                     print(f'translating batch {i + 1}/{n_batches}')
 
                 input_ids = batch['input_ids'].to(self.device)
@@ -206,6 +212,18 @@ class TranslationEvaluator():
         bleu_base = corpus_bleu(predicted_translations, [base_reference_translations])
         chrf_base = corpus_chrf(predicted_translations, [base_reference_translations])
         chrf_pp_base = corpus_chrf(predicted_translations, [base_reference_translations], word_order=2)
+
+        if not self.use_fst:
+            # The standard-tokenization model produces natural Quechua, so there is no
+            # FST-encoded reference to score against; mirror the base metrics.
+            return TranslationMetrics({
+                'bleu_base': bleu_base.score,
+                'chrf_base': chrf_base.score,
+                'chrf_pp_base': chrf_pp_base.score,
+                'bleu_fst': bleu_base.score,
+                'chrf_fst': chrf_base.score,
+                'chrf_pp_fst': chrf_pp_base.score,
+            })
 
         def identity(x: str): return x
         map_fn = decode_fst_output if use_decode_fst_output else identity
@@ -260,7 +278,7 @@ class TranslationEvaluator():
             shuffle=shuffle,
             n_dataloader_workers=TranslationEvaluator._N_DATALOADER_WORKERS,
             n_tokenize_workers=TranslationEvaluator._N_TOKENIZE_WORKERS,
-            use_fst=True
+            use_fst=self.use_fst
         )
 
     def _format_result(
@@ -300,10 +318,10 @@ class TranslationEvaluator():
     
     def _print_translation_metrics(self, metrics: TranslationMetrics) -> None:
         print(
-            f'\t- BLEU (base):   {metrics['bleu_base']:.3f}\n'
-            f'\t- chrF (base):   {metrics['chrf_base']:.3f}\n'
-            f'\t- chrF++ (base): {metrics['chrf_pp_base']:.3f}\n'
-            f'\t- BLEU (fst):   {metrics['bleu_fst']:.3f}\n'
-            f'\t- chrF (fst):   {metrics['chrf_fst']:.3f}\n'
-            f'\t- chrF++ (fst): {metrics['chrf_pp_fst']:.3f}'
+            f"\t- BLEU (base):   {metrics['bleu_base']:.3f}\n"
+            f"\t- chrF (base):   {metrics['chrf_base']:.3f}\n"
+            f"\t- chrF++ (base): {metrics['chrf_pp_base']:.3f}\n"
+            f"\t- BLEU (fst):   {metrics['bleu_fst']:.3f}\n"
+            f"\t- chrF (fst):   {metrics['chrf_fst']:.3f}\n"
+            f"\t- chrF++ (fst): {metrics['chrf_pp_fst']:.3f}"
         )
