@@ -98,6 +98,11 @@ def _qs_tokenize_fn(
 ):
     target_lang = get_other_lang(source_lang)
     def tokenize_helper(batch: Any):
+        # Set languages here (not in qs_tokenized_dataloader, which sets them only after
+        # .map() has already run) so the NLLB language tokens prepended to the inputs and
+        # labels are correct. Without this the tokenizer's default (eng_Latn) is used.
+        tokenizer.src_lang = source_lang
+        tokenizer.tgt_lang = target_lang
         return tokenizer(
             batch[get_lang_abbrev(source_lang)],
             text_target=batch[get_lang_abbrev(target_lang)],
