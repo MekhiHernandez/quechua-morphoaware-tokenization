@@ -56,6 +56,7 @@ def qs_tokenized_dataloader(
     Args:
         dataset: dataset to tokenize
         tokenizer: tokenizer used to tokenize dataset
+        source_lang: the source language, either Spanish (spa_Latn) or Quechua (quy_Latn)
         batch_size: batch size when iterating over dataloader
         max_length: determines the length that inputs are truncated to
         shuffle: whether or not to shuffle the dataloader
