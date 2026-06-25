@@ -34,30 +34,43 @@ def segment_surface(word: str):
     """Return list of (marker, surface_substring) using the input tape, or None if the
     FST doesn't recognize the word. marker is '=' (root/word-initial) or '+' (suffix)."""
     try:
-        acceptor = pynini.accep(' '.join(word), token_type=input_symbols)
+        acceptor = pynini.accep(' '.join(word), token_type=input_symbols) 
+        # go from "wasi" to "w a s i" such that each character treated as a symbol
+        # the FST defined symbols are individual letters. If skipped the join step,
+        # would see "wasi" as a single character and reject it
     except pynini.FstStringCompilationError:
         return None
-    lattice = pynini.shortestpath(acceptor @ fst)
-    if lattice.num_states() == 0:
+    best_parse = pynini.shortestpath(acceptor @ fst) 
+    # composition of acceptor @ fst returns an FST with all possible ways to make the full word,
+    # shortest path chooses the best segmentation
+    if best_parse.num_states() == 0:
         return None
+    # if no parse found return none
 
     segs: list[list[str]] = []   # [marker, surface]
     leading = ''
-    state = lattice.start()
+    state = best_parse.start()
     while state != -1:
-        arc = next(iter(lattice.arcs(state)), None)
+        arc = next(iter(best_parse.arcs(state)), None) #have to iterate due to lazy iterator
         if arc is None:
             break
         ich = input_symbols.find(arc.ilabel) if arc.ilabel != EPSILON_IDX else ''
+        # for each arc, grab input charcter or '' if the input is epsilon
         if arc.olabel != EPSILON_IDX:
+            #if emitted output symbol, then open a new bucket in segs
+            # append bucket as [marker, leading+ich]
             osym = output_symbols.find(arc.olabel)
             marker = '+' if osym.startswith('+') else '='
             segs.append([marker, leading + ich])
             leading = ''
-        else:
+        else: 
+            #if did not emit output symbol, and segs contains items, add the input character 
+            #to the most recent bucket
             if segs:
                 segs[-1][1] += ich
             else:
+                #if segs empty, add the input character to the leading string
+                # whole item will be added to segs upon finding output symbol 
                 leading += ich
         state = arc.nextstate
     if leading and segs:           # trailing chars with no further morpheme symbol
