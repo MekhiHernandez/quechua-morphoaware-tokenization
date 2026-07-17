@@ -57,8 +57,13 @@ def extend_vocabulary(
 
     overlapping_vocab = old_vocab.intersection(new_vocab)
     if len(overlapping_vocab) > 0:
-        tokenizer.src_lang = old_tokenizer_src_lang
-        raise ValueError(f'found {len(overlapping_vocab)} new tokens in the old vocabulary: {overlapping_vocab}')
+        # Surface segmentation yields real Quechua substrings (e.g. 'wasi', 'runa', 'ka') that already
+        # exist in NLLB's 200-language vocab. Reuse those existing tokens (and their pretrained
+        # embeddings) instead of adding duplicates; only genuinely-new morphemes get added.
+        print(f'reusing {len(overlapping_vocab)} morphemes already in NLLB vocab; '
+              f'adding {len(new_vocab - overlapping_vocab)} new tokens')
+        new_tokens = [t for t in new_tokens if t not in overlapping_vocab]
+        new_vocab = set(new_tokens)
 
     new_tokens_without_special = [_init_string(token) for token in new_tokens]
 
