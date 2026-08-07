@@ -70,9 +70,9 @@ class TranslationEvaluator():
         # instead of FST morpheme segmentation (used for the reference/control model).
         self.use_fst = use_fst
 
-        # Gradient checkpointing disabled: at batch_size=4 there's ample VRAM on a 24GB GPU, and it
-        # only trades ~20-30% speed for memory. Gradients (and thus the trained model) are identical.
-        # self.model.gradient_checkpointing_enable()
+        # Gradient checkpointing ON: keeps VRAM ~8GB so batch_size=4 fits comfortably on a 16GB T4
+        # (g4dn). Result-identical to off; costs ~20-30% time. Disable it if you run on a >=24GB GPU.
+        self.model.gradient_checkpointing_enable()
         self.model.config.use_cache = False
 
     def train_model(
