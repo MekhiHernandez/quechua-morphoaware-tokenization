@@ -45,7 +45,7 @@ if __name__ == '__main__':
     )
 
     config: TranslationTrainingConfig = {
-        'epochs': 20,
+        'epochs': 60,                      # a CAP; early stopping ends it once val loss plateaus
         'batch_size': 4,
         'batches_per_update': 16,
         'lr': 1e-4,
@@ -54,6 +54,8 @@ if __name__ == '__main__':
         'grad_clip_max_norm': 1.0,
         'eval_freq': 3,
         'save_folder_name': model_save_path,
+        'early_stopping_patience': 5,      # stop after 5 epochs with no val-loss improvement
+        'early_stopping_min_delta': 0.0,
     }
 
     result = evaluator.train_model(config)

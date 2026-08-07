@@ -23,8 +23,10 @@ class TranslationTrainingConfig(TypedDict):
     weight_decay: float
     warmup_steps_frac: float
     grad_clip_max_norm: float
-    eval_freq: int    
+    eval_freq: int
     save_folder_name: str | None
+    early_stopping_patience: int      # stop after N epochs with no val-loss improvement (0 = disabled)
+    early_stopping_min_delta: float   # minimum val-loss drop that counts as an improvement
 
 class TranslationMetrics(TypedDict):
     bleu_base: float
@@ -142,6 +144,12 @@ class TranslationEvaluator():
 
         start_time = datetime.now().strftime('%Y%m%d_%H%M%S')
 
+        patience = config.get('early_stopping_patience', 0)      # 0 -> early stopping disabled
+        min_delta = config.get('early_stopping_min_delta', 0.0)
+        best_val_loss = float('inf')
+        best_epoch = 0
+        epochs_since_improvement = 0
+
         for epoch in range(1, config['epochs'] + 1):
             print(f"--------------- Epoch {epoch}/{config['epochs']} ---------------")
             print(f'Starting training epoch...')
@@ -161,8 +169,28 @@ class TranslationEvaluator():
                 val_metrics.append(metrics)
                 self._print_translation_metrics(metrics)
 
+            # Track the lowest val loss and keep that checkpoint; count epochs since the last
+            # improvement so training can stop once the model has plateaued.
+            if val_loss < best_val_loss - min_delta:
+                best_val_loss = val_loss
+                best_epoch = epoch
+                epochs_since_improvement = 0
+                if config['save_folder_name'] is not None:
+                    self._save_best_checkpoint(config['save_folder_name'])
+                    print(f'  new best val loss {best_val_loss:.5f} (epoch {epoch}) -> saved best_checkpoint')
+            else:
+                epochs_since_improvement += 1
+                suffix = f'/{patience}' if patience else ''
+                print(f'  no val improvement for {epochs_since_improvement}{suffix} epoch(s) '
+                      f'(best {best_val_loss:.5f} @ epoch {best_epoch})')
+
             if config['save_folder_name'] is not None:
                 self._save_checkpoint(config['save_folder_name'], epoch, start_time)
+
+            if patience and epochs_since_improvement >= patience:
+                print(f'Early stopping at epoch {epoch}: no improvement for {patience} epoch(s); '
+                      f'best val loss {best_val_loss:.5f} @ epoch {best_epoch}.')
+                break
 
         return self._format_result(train_losses, val_losses, val_metrics)
 
@@ -294,6 +322,12 @@ class TranslationEvaluator():
             'val_losses': val_losses,
             'val_metrics': val_metrics
         })
+
+    def _save_best_checkpoint(self, save_folder_name: str) -> None:
+        '''Overwrite the single best-so-far checkpoint (lowest val loss) in a fixed subfolder.'''
+        best_path = os.path.join(save_folder_name, 'best_checkpoint')
+        self.model.save_pretrained(best_path)
+        self.tokenizer.save_pretrained(best_path)
 
     def _save_checkpoint(self, save_folder_name: str, epoch: int, start_time: str) -> None:
         checkpoint_name = f'{TranslationEvaluator._CHECKPOINT_STR_START}_epoch{epoch}_{start_time}'
